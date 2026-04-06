@@ -1,0 +1,72 @@
+name: Publish Submissions to Backend
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "submissions/**/metadata.json"
+
+jobs:
+  process-submissions:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Dependencies
+        run: npm ci || npm install
+
+      - name: Get changed metadata files
+        id: changed-files
+        uses: tj-actions/changed-files@v42
+        with:
+          files: submissions/**/metadata.json
+          json: true
+
+      - name: Process each submission
+        if: steps.changed-files.outputs.any_changed == 'true'
+        env:
+          API_BASE_URL: ${{ secrets.API_BASE_URL }}
+          ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+        run: |
+          files='${{ steps.changed-files.outputs.all_changed_files }}'
+          # Strip the backslash escapes that GitHub Actions injects
+          clean=$(echo "$files" | sed 's/\\"/"/g')
+          echo "$clean" | jq -r '.[]' | while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            echo "Processing submission: $file"
+
+            if [ ! -f "$file" ]; then
+              echo "Metadata file not found (already deleted?): $file"
+              continue
+            fi
+
+            npx tsx scripts/publish-submissions.ts "$file"
+          done
+
+      - name: Commit and push deleted submissions
+        if: steps.changed-files.outputs.any_changed == 'true'
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if [[ -n $(git status --porcelain) ]]; then
+            git add submissions/
+            git commit -m "chore: auto-delete processed submissions"
+            git pull --rebase origin main
+            git push
+          else
+            echo "No submissions were deleted."
+          fi
