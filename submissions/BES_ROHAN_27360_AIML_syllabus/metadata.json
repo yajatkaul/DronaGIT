@@ -1,0 +1,7 @@
+{
+  "type": "syllabus",
+  "title": "BES Syllabus",
+  "subject": "BES",
+  "branch": ["AIML", "CSE", "IT","IOT","CSIT"],
+   "semester": "1"
+}
